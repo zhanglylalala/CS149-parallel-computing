@@ -1,5 +1,15 @@
+# macOS files
 .DS_Store
+
+# LaTeX files
 *.out
 *.aux
 *.log
+
+# VSC files
 .vscode
+*.dSYM
+
+# Assignment files
+*.o
+*.ppm
