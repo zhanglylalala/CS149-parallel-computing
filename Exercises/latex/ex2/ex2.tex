@@ -1,0 +1,859 @@
+%% You can use this file to create your answer for Exercise 1.  
+%% Fill in the places labeled by comments.
+%% Generate a PDF document by with the command `pdflatex ex1'.
+
+\documentclass[11pt]{article}
+
+
+\usepackage{alltt}
+\usepackage{times}
+\usepackage{listings}
+\usepackage{enumerate}
+\usepackage{courier}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{color}
+
+\input{config-ex2}
+
+%% Page layout
+\oddsidemargin 0pt
+\evensidemargin 0pt
+\textheight 600pt
+\textwidth 469pt
+\setlength{\parindent}{0em}
+\setlength{\parskip}{1ex}
+
+%% Colored hyperlink 
+\newcommand{\cref}[2]{\href{#1}{\color{blue}#2}}
+
+%% Customization to listing
+\lstset{basicstyle=\ttfamily\small,language=C,morekeywords={cilk_synch,cilk_spawn}}
+
+%% Enumerate environment with alphabetic labels
+\newenvironment{choice}{\begin{enumerate}[A.]}{\end{enumerate}}
+%% Environment for supplying answers to problem
+\newenvironment{answer}{\begin{minipage}[c][1.5in]{\textwidth}}{\end{minipage}}
+
+
+\begin{document}
+\begin{flushright}                         
+{\large\bf Full Name: \makebox[2in][l]{    
+%% Put your name on the next line          
+                                           
+                                           
+}} \\[1ex]                                 
+                                           
+{\large\bf Andrew Id: \makebox[2in][l]{\tt 
+%% Put your Andrew ID on the next line     
+                                           
+}} \\[1ex]                                 
+\end{flushright}                           
+\vspace*{0.3in}                            
+\begin{center}
+\LARGE
+15-418/618 \thisterm{} \\
+Exercise 2
+\end{center}
+
+\begin{center}
+\Large        
+\begin{tabular}{ll}
+\hline             
+Assigned: & \dateassigned{}  \\
+Due: &  \datedue{}, 11:00~pm  \\
+\hline       
+\end{tabular}
+\end{center} 
+
+\section*{Overview}
+
+This exercise is designed to help you better understand the lecture
+material and be prepared for the style of questions you will get on
+the exams.  The questions are designed to have simple answers.  Any
+explanation you provide can be brief---at most 3 sentences.  You
+should work on this on your own, since that's how things will be when
+you take an exam.
+
+You will submit an electronic version of this assignment to Gradescope 
+as a PDF file.  For those of you familiar with the \LaTeX{} text 
+formatter, you can download the template and configuation files at: 
+\begin{center} 
+  \cref{\actualcoursehome/exercises/config-ex2.tex}{\visiblecoursehome/exercises/config-ex2.tex}\\ 
+  \cref{\actualcoursehome/exercises/ex2.tex}{\visiblecoursehome/exercises/ex2.tex} 
+\end{center} 
+Instructions for how to use this template are included as comments in 
+the file.  Otherwise, you can use this PDF document as your starting 
+point.  You can either: 1) electronically modify the PDF, or 2) print 
+it out, write your answers by hand, and scan it.  In any case, we 
+expect your solution to follow the formatting of this document. 
+
+\section*{Problem 1: Instruction-Level Parallelism}
+
+The following set of problems concern instruction-level parallelism
+and the limitations to performance of loop code imposed by data
+dependencies and resource limitations (as expressed by throughput bounds).
+
+Calculating the distance between two vectors is an important operation for many
+linear algebra packages and can be defined as:
+\begin{displaymath}
+\sqrt{\sum_{i=0}^{N-1}\left ( A\left [ i \right ]-B\left [ i \right ] \right )^{2}}.
+\end{displaymath}
+
+\newpage
+Consider the following C code for calculating the squared distance 
+between two vectors.
+
+\begin{lstlisting}[language=C]
+float distance(float A[], float B[], int N) {
+	int i = 0;
+	float total = 0;
+	while (i < N) {                        // Performed by integer unit
+		float a = A[i];                // Load
+		float b = B[i];                // Load
+		float diff = a - b;            // FP Add
+		float squared = diff * diff;   // FP Multiply
+		total = total + squared;       // FP Add
+		++i;                           // Performed by integer unit
+	}
+	return total;
+}
+\end{lstlisting}
+
+
+Suppose for the following questions you have a machine with multiple execution units of the following types:
+\begin{description}
+\item[Load/Store:] Performs load and store operations.  Can perform its own address arithmetic.
+\item[Floating-point Adder:] Performs floating-point addition and subtraction
+\item[Floating-point Multiplier:] Performs floating-point multiplication
+\item[Integer:] Performs integer operations, including addition and comparison.
+\end{description}
+
+The processor has the following combination of execution units:
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Unit}           & \textbf{Count} & \textbf{Latency} \\ \hline
+Load/Store              & 1              & 4                \\ \hline
+Floating-point Add      & 2              & 1                \\ \hline
+Floating-point Multiply & 1              & 2                \\ \hline
+Integer Add             & 2              & 1                \\ \hline
+\end{tabular}
+\end{center}
+Each of the multi-cycle units is {\em fully pipelined}, able to begin a new operation on each clock cycle.
+
+You should also assume the following:
+\begin{itemize}
+        \item The compiler produces optimized code.  All local variables are held in registers.
+	\item The machine described has a sophisticated CPU with
+	support for out-of-order execution, pipelining, branch prediction, and speculation.
+	\item $N$ is very large ($> 10^{6}$).
+	\item There are no cache misses.
+        \item The only limits to average program performance are 1) the latencies due to data
+          dependencies on loop-carried variables, and 2) the
+          throughput limits of the functional units.
+\end{itemize}
+
+\begin{choice}
+\item
+Draw the dataflow diagram for the operations in the loop of \lstinline{distance}.  Use the local variable names as labels.
+% Insert your diagram for 1A here.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics*[width=0.6\linewidth]{1.A.png}
+  \caption[]{The dataflow diagram}
+\end{figure}
+
+\newpage
+\item
+Which local variables create loop dependencies?
+
+\begin{answer}
+%% Put your answer to 1B here
+
+Total and i create loop dependencies. 
+
+\end{answer}
+
+\item
+
+What latency bound does the loop of \lstinline{distance} impose on the minimum average number of cycles for each element computed?
+Justify your answer.
+
+\begin{answer}
+%% Put your answer to 1C here
+\textcolor{blue}{A latency bound is encountered when a series of operations must be performed in strict sequence.}
+\textcolor{red}{If there is some chain of data dependencies in a program where the sum of all of the latencies along that chain equals T, then the program will require at least T cycles to execute.}
+
+Here, only the dependencies between iterations of the loop is considered. 
+The addition of \lstinline{total} and \lstinline{squared}, and the increment of \lstinline{i} both create latency bounds of 1. These are the 
+only two calculations that dependends on the previous iterations, and must be performed in sequence. 
+
+\end{answer}
+
+\item
+What throughput bound does the set of available execution units impose on the loop of \lstinline{distance}?  Explain.
+
+\begin{answer}
+%% Put your answer to 1D here
+\textcolor{blue}{A throughput bound characterizes the raw computing capacity of the processor's functional units.}
+\textcolor{red}{Assume that a program requires a total of N computations of some operation, that the processor has C functional units capable of performing that operation, and that these units have an issue time of I. Then the program will require at least N · I/C cycles to execute.}
+\textcolor{blue}{A program can achieve the throughput bound only when it can keep the pipelines filled for all of the functional units. 
+}
+
+The 2 Load instructions share a Load/Store unit, and thus create 2 cycles. All other functional units (FP Add, FP Mul, integer) create a bound of 1 cycle each. 
+
+\end{answer}
+
+\item
+If you could add one additional execution unit to the mix above, what
+would it be?  How would that change your program performance?
+
+\begin{answer}
+%% Put your answer to 1E here?
+I would add another Load/Store Unit. This could reduce one cycle of the throughput bound. 
+\textcolor{red}{And matches the latency bound. }
+
+\end{answer}
+\end{choice}
+
+
+\section*{Barrier Synchronization}
+
+The following set of problems are inspired by the code shown in Slides 48 and 49 in Lecture 05. 
+In the following, we show only key parts of our version of the code. 
+You can get the complete versions in the directory 
+\begin{center} 
+  \cref{\actualcoursehome/exercises/ex2-code}{\visiblecoursehome/exercises/ex2-code} 
+\end{center} 
+We suggest you download this code and study it.  You can also compile 
+and run it.  (See the \texttt{README.txt} file.)  Insert print statements into the code to trace the 
+actions of the different threads. 
+
+The synchronization code in the slides show implement parts of a grid
+solver.  To focus more directly on synchronization issues, we will
+adapt the code for the following, highly contrived, application.
+
+Let $B$ denote a {\em batch size} and $\theta$, with $0.0 < \theta <
+1.0$ denote a {\em threshold.}  Suppose we perform a series of {\em
+  phases}, where in each phase we compute $B$ random numbers, each ranging between 0.0 and 1.0, and take
+their average $a$.  How many phases will it take to reach a case where
+$a \leq \theta$, and what is the achieved value of $a$?  We assume the
+``random'' numbers are actually generated by a pseudo-random
+generator, and so, assuming we always start with the same seed, the
+results will be deterministic.
+
+Our implementation has $B$ threads running concurrently, using barrier
+synchronization to keep them operating on the same phase.  The global variables are as follows:
+
+\begin{lstlisting}
+//// Global variables ////
+// Read-only
+float target_average; // Convergence goal
+int batch_size;       // Number in batch
+// Only written by single thread
+long pcount = 0;      // Number of phases required
+// Read-write  
+float phase_sum;      // Sum of all values in current phase
+\end{lstlisting}
+
+\subsection*{A Three-Barrier Solution}
+
+
+The following is the thread procedure for a version using three
+barriers, similar to the code in Slide 48.  The full program is in the
+file {\tt rconverge1.c}.  There are barriers between the three actions
+performed on shared variable \texttt{phase\_sum} in each phase:
+setting it to zero, incrementing by the random value, and testing for
+convergence.  The call \texttt{uniform()} returns a (pseudo-)random
+number between 0.0 and 1.0.
+
+\newpage
+\begin{lstlisting}
+//// Thread procedure # 1 ////
+void *thread_proc(void *ival) {
+    long myid = (long) ival;
+    bool myconverged = false;
+    long count = 0;
+    while (!myconverged) {
+        count++;
+
+        phase_sum = 0.0;                // Action 1: Set to zero
+
+        barrier();   // Barrier #1
+
+        float myval = uniform();
+        atomic_add(&phase_sum,  myval); // Action 2: Increment
+
+        barrier();   // Barrier #2
+
+        myconverged =                   // Action 3: Test
+            (phase_sum/batch_size) <= target_average;
+
+        barrier();   // Barrier #3
+
+    }
+    if (myid == 0)
+        pcount = count;
+    return NULL;
+}
+\end{lstlisting}
+
+
+\newpage
+\subsection*{Problem 2: Understanding the Three-Barrier Solution}
+
+For each of the three barriers, what can go wrong if you eliminate it?
+You can try this with the actual code.  You may want to insert print
+statements to track what happens.  Describe the behavior you observe,
+and explain why it is happening.
+
+\begin{choice}
+\item Barrier \#1
+
+\begin{answer}
+%% Put your answer to 2A here
+When barrier \#1 is eliminated, different threads will set \lstinline{phase_sum} to 0 at different time, which might cause the loss of random values that have already
+added to \lstinline{phase_sum}. So the final \lstinline{phase_sum} is not the sum of all random values, and thus the program will converge easier. 
+\end{answer}
+\item Barrier \#2
+
+\begin{answer}
+%% Put your answer to 2B here
+
+When barrier \#2 is eliminated, different threads judge \lstinline{myconverged} with different values of \lstinline{phase_sum} since they can reach the instruciton
+at any time they want. So different thrads can have different values of \lstinline{myconverged}, and thus some threads might return before others. However, when some threads has not yet returned, they can never get off the barrier \#1
+in the next phase, because there is not as much threads as required. And the whole program will keep waiting. 
+
+\end{answer}
+
+\item Barrier \#3
+
+\begin{answer}
+%% Put your answer to 2C here
+When barrier \#2 is released, all threads have the same \lstinline{phase_sum}. If that phase have not yet converged, \lstinline{myconverged} should be \lstinline{false}. But without barrier \#3, some threads
+might begin the next phase first, and reset \lstinline{phase_sum} to 0, and cause the threads that is still in the last phase get a wrong \lstinline{myconverged} due to a wrong \lstinline{phase_sum = 0}. And the rest is similar to the elimination of Barrier \#2. 
+\end{answer}
+\end{choice}
+
+\subsection*{Single-Barrier Solutions}
+
+As Slide 49 demonstrates, it is possible to transform the
+three-barrier solution into one that uses only one barrier, using a
+technique known as {\em software pipelining}.  The idea is to maintain
+multiple versions of the shared, global variables, and make sure that
+the different actions being performed within the loop operate on different versions.
+The number of versions required is referred to as the {\em pipeline depth}.
+
+For our case, we only need to have multiple copies of the variable \texttt{phase\_sum}:
+\begin{lstlisting}
+float phase_sum[PIPEDEPTH];  // Sum of all values in current phase
+\end{lstlisting}
+The quantity \texttt{PIPEDEPTH} is a compile-time constant.  In the
+version provided to you, it is set to 128.
+
+First, we will explore a version of the thread procedure that is
+easier to understand.  The thread procedure is shown below.  The full
+code is in the file \texttt{rconverge2.c}.  We see that it maintains
+three indices into the \texttt{phase\_sum}, one for each of the basic
+operations.  These indices are incremented by one for each phase,
+modulo the pipeline depth.
+
+\begin{lstlisting}
+//// Thread procedure #2 ////
+void *thread_proc(void *ival) {
+    long myid = (long) ival;
+    bool myconverged = false;
+    int previndex = 0;
+    int index = 1;
+    long count = 0;
+    phase_sum[1] = 0;
+    barrier();       // Barrier #1
+
+    while (!myconverged) {
+	count++;
+
+	int nextindex = (index+1) % PIPEDEPTH;
+	phase_sum[nextindex] = 0.0;            // Action 1: Set to zero
+
+	float myval = uniform();
+	atomic_add(&phase_sum[index],  myval); // Action 2: Increment
+
+        myconverged =                          // Action 3: Test
+	    (phase_sum[previndex]/batch_size) <= target_average;
+
+	barrier();   // Barrier #2
+
+	previndex = index;
+	index = nextindex;
+    }
+    if (myid == 0)
+	pcount = count - 1;
+    return NULL;
+}
+\end{lstlisting}
+
+\newpage
+\subsection*{Problem 3: Understanding the First Single-Barrier Solution}
+
+\begin{choice}
+\item Barrier \#1 is called only at the beginning of the procedure.
+Describe its purpose.  What incorrect behavior can arise by eliminating it?
+
+\begin{answer}
+%% Put your answer to 3A here
+The idea of this version of one barrier algorithm is that we check if the last phase is converged, calculate the sum of the current phase, and set the \lstinline{phase_sum} of the next phase to 0. 
+Barrier \#2 is meant to make sure all threads go to the next phase together, since the current phase will overwrite the data of next phase. 
+
+The purpose of barrier \#1 is to make sure all threads go to phase \#1 together. Without the barrier \#1, 
+the slower threads will overwrite the addition of those faster threads when they executing \lstinline{phase_sum[1] = 0}. 
+
+\end{answer}
+\item Why does global variable \texttt{pcount} get set to \texttt{count - 1} in this code, but to \texttt{count} in the earlier code?
+
+\begin{answer}
+%% Put your answer to 3B here
+Because the \lstinline{myconverged} test only test whether the last phase has converged, so if it passed, it means that the convergence is achieved in the last phase, instead of the current phase. 
+\end{answer}
+\item How small can constant \texttt{PIPEDEPTH} be set and still get
+  correct behavior?  Explain why this is the case.
+
+\begin{answer}
+%% Put your answer to 3C here
+The smallest \lstinline{PIPEDEPTH} could be 3. In each phase, we will concern about three phases, the previous one, the current one, and the next one. 
+We only need to make sure that those three phases are in different position in \lstinline{phase_sum}. 
+\end{answer}
+\item Suppose you swap the order of Barrier \#2 with the code
+  implementing Action \#3.
+Explain why the program still works for the
+  default version of \texttt{PIPEDEPTH}.
+
+\begin{answer}
+%% Put your answer to 3D here
+When we do so, the threads might be different phase with each other when testing and setting to 0. 
+Some threads are testing the previous phase of phase \lstinline{i}, while some are setting the next phase of phase \lstinline{i + 1} to zero. 
+Namely, some threads are tesing phase \lstinline{i - 1}, while some are setting phase \lstinline{i + 2}. 
+
+When the \lstinline{PIPEDEPTH} is 128, the subscripts of phase \lstinline{i - 1} and phase \lstinline{i + 2} are different, so there is no conflict. 
+\end{answer}
+\item
+With this swapped version,
+how small can you set \texttt{PIPEDEPTH} and still get the correct
+answer?  Explain.
+
+\begin{answer}
+%% Put your answer to 3E here
+We need to ensure that the subscripts of \lstinline{i - 1} and \lstinline{i + 2} is different. 
+
+When the \lstinline{PIPEDEPTH} is 3, those two subscripts are the same, and thus conflict will be caused. 
+If some threads testing after other threads set the \lstinline{phase_sum} to 0, they will return earlier, and leave other threads waiting in the barrier \#2 of next phase. 
+
+The smallest number to do so is 4. 
+
+\end{answer}
+\end{choice}
+
+\subsection*{Problem 4: Understanding the Second Single-Barrier Solution}
+Our final version of the code resembles that seen in Slide 49:
+\begin{lstlisting}
+//// Thread procedure #3 ////
+void *thread_proc(void *ival) {
+    long myid = (long) ival;
+    bool myconverged = false;
+    int index = 1;
+    long count = 0;
+    phase_sum[1] = 0;
+    barrier();       // Barrier #1
+
+    while (!myconverged) {
+	count++;
+
+	int nextindex = (index+1) % PIPEDEPTH;
+	phase_sum[nextindex] = 0.0;            // Action 1: Set to zero
+
+	float myval = uniform();
+	atomic_add(&phase_sum[index],  myval); // Action 2: Increment
+
+	barrier();   // Barrier #2
+
+        myconverged =                          // Action 3: Test
+	    (phase_sum[index]/batch_size) <= target_average;
+
+	index = nextindex;
+    }
+    if (myid == 0)
+	pcount = count;
+    return NULL;
+}
+\end{lstlisting}
+\newpage
+This version  maintains only two indices, and the
+barrier synchronization has been put before Action \#3.  Let us explore this code:
+\begin{choice}
+\item Explain why the code does not require the third index \texttt{previndex}
+
+\begin{answer}
+%% Put your answer to 4A here
+In the last version, we test on the previous phase because barrier \#2 is after the test, and we cannot ensure that all additions in this phase are finished when testing. 
+However, in this version, all threads have passed barrier \#2 when testing, and thus we know that all additions have finished. 
+So the \lstinline{phase_sum} of the current phase is the final sum wanted when testing. Thus, there is no need to check the current phase in the next phase. 
+\end{answer}
+\item In this version, the global variable \texttt{pcount} is set to
+  the local value \texttt{count}, without decrementing it.  Explain
+  why this is the correct result.
+
+\begin{answer}
+%% Put your answer to 4B here
+As aforementioned, the testing is for the current phase, not the previous phase. So when \lstinline{myconverged = true}, that means the current phase is the answer. 
+\end{answer}
+\item How small can constant \texttt{PIPEDEPTH} be set and still get correct behavior?  Explain why this is the case.
+
+\begin{answer}
+%% Put your answer to 4C here
+This is a little similar to 3D and 3E. 
+There might exist a situation that the slower threads are testing the current phase of phase \lstinline{i} while others are setting the next phase of phase \lstinline{i + 1} to zero. 
+Namely, some threads are testing the phase \lstinline{i} while others are setting phase \lstinline{i + 2} to 0. 
+
+We need to ensure that the subscripts of phase \lstinline{i} and phase \lstinline{i + 2} have no conflict. So the smallest \lstinline{PIPEDEPTH} is 3. 
+\end{answer}
+\end{choice}
+
+\newpage
+\section*{Cilk Scheduling}
+
+The following problems are based on the presentation of the Cilk
+programming environment from Lecture 06.
+
+Suppose we are running a program that uses the Cilk mechanisms for fork-join parallelism.  Assume the following:
+\begin{itemize}
+\item The system is running two threads
+\item Every execution of {\tt cilk\_spawn} requires 1 millisecond.
+  The executing thread will push its continuation at the top of its queue and
+  begin executing (after 1ms) the spawned function (``child first''
+  scheduling).
+\item One thread can steal work from the queue of another.  It always
+  steals from the bottom of the queue.  Stealing requires 2
+  milliseconds, and then the thread can begin performing whatever operation is specified in the record.  
+\item The procedure \texttt{foo} requires 3 milliseconds to complete.
+\item All other operations require only a negligible amount of time.
+\end{itemize}
+
+As an example, consider the following code
+\begin{lstlisting}
+void simple() {
+    cilk_spawn foo(1);
+    foo(3);
+    cilk_synch;
+}
+\end{lstlisting}
+
+If Thread 1 starts executing \texttt{simple}, we can trace its execution as follows:
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|c|l|l|}
+\hline
+Time & \makebox[2.75in]{Thread 1} & \makebox[2.75in]{Thread 2} \\
+\hline
+0
+ &         %% T1
+   Spawn \texttt{foo(1)}; Push \texttt{foo(3)} 
+ &         %% T2 
+   Idle
+\\
+\hline
+1 
+ &         %% T1
+    Execute \texttt{foo(1)}
+ &         %% T2 
+    Steal \texttt{foo(3)}
+\\
+\hline
+2 
+ &         %% T1 
+    Executing
+ &         %% T2 
+    Stealing
+\\
+\hline
+3
+ &         %% T1 
+    Executing
+ &         %% T2   
+    Execute \texttt{foo(3)}
+\\
+\hline
+4 
+ &         %% T1 
+    Idle
+ &         %% T2  
+    Executing
+\\
+\hline
+5 
+ & 
+    Idle
+ &
+    Executing
+\\
+\hline
+\end{tabular}
+\end{center}
+
+\newpage
+\section*{Problem 5: Divide and Conquer Parallelism}
+
+Consider the following function for executing multiple copies of function
+\texttt{foo} via a series of forks that repeatedly split the problem
+in half, analogous to the control structure of quicksort:
+\begin{lstlisting}
+void rfor(int start, int last) {
+    if (start == last)
+	foo(start);
+    else {
+	int middle = (start + last)/2;
+	cilk_spawn rfor(start, middle);
+	rfor(middle+1, last);
+    }
+    cilk_synch;
+}
+\end{lstlisting}
+
+\begin{choice}
+\item Fill in the following table, showing how two threads would
+  handle the execution of \texttt{rfor(0,3)}.  (You may not require all of the rows in the table.)
+
+%% Fill in the lines below for the table requested in Problem 5A.
+%% See the formatting of the preceding table as an example
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|c|l|l|}
+\hline
+Time & \makebox[2.75in]{Thread 1} & \makebox[2.75in]{Thread 2} \\
+\hline
+0 
+ &                     %% T1
+ Spawn rfor(0, 1), push rfor(2, 3)
+ &                     %% T2
+ Idle
+\\
+\hline
+1
+ &                     %% T1
+ Spawn rfor(0, 0); push rfor(1, 1)
+ &                     %% T2
+ Steal rfor(2, 3)
+\\
+\hline
+2
+ &                      %% T1
+ Executing foo(0)
+ &                      %% T2
+ Stealing
+\\
+\hline
+3
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Spawn rfor(2, 2); push rfor(3, 3)
+\\
+\hline
+4
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Executing foo(2)
+\\
+\hline
+5
+ &                     %% T1
+ Executing foo(1)
+ &                     %% T2
+ Executing
+\\
+\hline
+6
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Executing
+\\
+\hline
+7
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Executing foo(3)
+\\
+\hline
+8
+ &                     %% T1
+ Idle
+ &                     %% T2
+ Executing
+\\
+\hline
+9
+ &                     %% T1
+ Idle
+ &                     %% T2
+ Executing
+\\
+\hline
+
+\end{tabular}
+\end{center}
+
+\newpage
+\item What do you get as the computed speedup for this execution?
+
+\begin{answer}
+%% Put your answer to 5B here
+Serial execution takes $4\times3=12\ ms$, while parallel executiong take 10 ms as shown above. 
+
+The speedup = $12 / 10 = 1.2$
+\end{answer}
+\end{choice}
+
+\section*{Problem 6: Iterative Parallelism}
+
+Consider the following function for executing multiple copies of
+function \texttt{foo} by having the main thread spawning off series of
+threads, each executing one instance of \texttt{foo}.  (Although the
+function is written as a recursive procedure, you will see that the
+sequence of spawns is identical what would occur if they were done as
+a single loop, as in shown in Lecture 06, starting with Slides 39.)
+\begin{lstlisting}
+void ifor(int start, int last) {
+    if (start == last)
+	foo(start);
+    else {
+	cilk_spawn ifor(start, start);
+	ifor(start+1, last);
+    }
+    cilk_synch;
+}
+\end{lstlisting}
+
+\newpage
+\begin{choice}
+\item Fill in the following table, showing how two threads would
+  handle the execution of \texttt{ifor(0,3)}:
+
+%% Fill in the lines below for the table requested in Problem 6A.
+%% See the formatting of the preceding table as an example
+\begin{center}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|c|l|l|}
+\hline
+Time & \makebox[2.75in]{Thread 1} & \makebox[2.75in]{Thread 2} \\
+\hline
+0 
+ &                     %% T1
+ Spawn ifor(0, 0); push ifor(1, 3)
+ &                     %% T2
+ Idle
+\\
+\hline
+1
+ &                     %% T1
+ Execute foo(0)
+ &                     %% T2
+ Steal ifor(1, 3)
+\\
+\hline
+2
+ &                      %% T1
+ Executing
+ &                      %% T2
+ Stealing
+\\
+\hline
+3
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Spawn ifor(1, 1); push ifor(2, 3)
+\\
+\hline
+4
+ &                     %% T1
+ Steal ifor(2, 3)
+ &                     %% T2
+ Execute foo(1)
+\\
+\hline
+5
+ &                     %% T1
+ Stealing
+ &                     %% T2
+ Executing
+\\
+\hline
+6
+ &                     %% T1
+ Spawn ifor(2, 2); push ifor(3, 3)
+ &                     %% T2
+ Executing
+\\
+\hline
+7
+ &                     %% T1
+ Execute foo(2)
+ &                     %% T2
+ Steal ifor(3, 3)
+\\
+\hline
+8
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Stealing
+\\
+\hline
+9
+ &                     %% T1
+ Executing
+ &                     %% T2
+ Executing foo(3)
+\\
+\hline
+10
+ &                     %% T1
+ Idle
+ &                     %% T2
+ Executing
+\\
+\hline
+11
+ &                     %% T1
+ Idle
+ &                     %% T2
+ Executing
+\\
+\hline
+\end{tabular}
+\end{center}
+\item What do you get as the computed speedup for this execution?
+
+\begin{answer}
+%% Put your answer to 6B here
+The parallel execution takes 12 ms. So the speedup = $12 / 12 = 1.0$
+\end{answer}
+
+\item What insights do these to example give you regarding the best way to use Cilk in exploiting fork-join parallelism?
+
+\begin{answer}
+%% Put your answer to 6C here
+Stealing is costly, so we want to reduce stealing as much as possible. 
+Compare to decrease-and-conquer in problem 6, divide-and-conquer in problem 5 is better. 
+\end{answer}
+\end{choice}
+
+
+
+\end{document}
