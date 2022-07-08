@@ -1,0 +1,439 @@
+%% You can use this file to create your answer for Exercise 1.  
+%% Fill in the places labeled by comments.
+%% Generate a PDF document by with the command `pdflatex ex1'.
+
+\documentclass[11pt]{article}
+
+
+\usepackage{times}
+\usepackage{listings}
+\usepackage{enumerate}
+\usepackage{courier}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+
+\input{config-ex3}
+
+%% Page layout
+\oddsidemargin 0pt
+\evensidemargin 0pt
+\textheight 600pt
+\textwidth 469pt
+\setlength{\parindent}{0em}
+\setlength{\parskip}{1ex}
+
+%% Colored hyperlink 
+\newcommand{\cref}[2]{\href{#1}{\color{blue}#2}}
+
+%% Customization to listing
+\lstset{basicstyle=\ttfamily\small,language=C,morekeywords={cilk_synch,cilk_spawn}}
+
+%% Enumerate environment with alphabetic labels
+\newenvironment{choice}{\begin{enumerate}[A.]}{\end{enumerate}}
+%% Environment for supplying answers to problem
+\newenvironment{answer}{\begin{minipage}[c][1.5in]{\textwidth}}{\end{minipage}}
+
+
+\begin{document}
+\begin{flushright}                         
+{\large\bf Full Name: \makebox[2in][l]{    
+%% Put your name on the next line          
+                                           
+                                           
+}} \\[1ex]                                 
+                                           
+{\large\bf Andrew Id: \makebox[2in][l]{\tt 
+%% Put your Andrew ID on the next line     
+                                           
+}} \\[1ex]                                 
+\end{flushright}                           
+\vspace*{0.3in}                            
+\begin{center}
+\LARGE
+15-418/618 \thisterm{} \\
+Exercise 3
+\end{center}
+
+\begin{center}
+\Large        
+\begin{tabular}{ll}
+\hline             
+Assigned: & \dateassigned{}  \\
+Due: &  \datedue{}, 11:00~pm  \\
+\hline       
+\end{tabular}
+\end{center} 
+
+\section*{Overview}
+
+This exercise is designed to help you better understand the lecture
+material and be prepared for the style of questions you will get on
+the exams.  The questions are designed to have simple answers.  Any
+explanation you provide can be brief---at most 3 sentences.  You
+should work on this on your own, since that's how things will be when
+you take an exam.
+
+You will submit an electronic version of this assignment to Gradescope 
+as a PDF file.  For those of you familiar with the \LaTeX{} text 
+formatter, you can download the template and configuation files at: 
+\begin{center} 
+  \cref{\actualcoursehome/exercises/config-ex3.tex}{\visiblecoursehome/exercises/config-ex3.tex}\\ 
+  \cref{\actualcoursehome/exercises/ex3.tex}{\visiblecoursehome/exercises/ex3.tex} 
+\end{center} 
+Instructions for how to use this template are included as comments in 
+the file.  Otherwise, you can use this PDF document as your starting 
+point.  You can either: 1) electronically modify the PDF, or 2) print 
+it out, write your answers by hand, and scan it.  In any case, we 
+expect your solution to follow the formatting of this document. 
+
+
+\section*{Problem 1: GPU Programming}
+
+Your friends have been hearing that you now know how to program a GPU
+and take advantage of all its capabilities. Eager to bask in your
+knowledge, they come to you with different problems that they think
+might benefit from GPU parallelism.
+
+One such friend heard that GPUs can launch thousands of parallel
+``threads.'' They want to identify the indices of a large array of
+$n$ elements in an even larger array (of size $m$) using binary search. They suggest to
+you that every thread on the GPU will be searching for one element in
+the array, so that with say, 1024 threads, they'll be able to search
+get near $1024\times$ performance.
+
+\begin{choice}
+\item
+First off, how do you explain that
+threads on a CPU are not the same as threads on a GPU? (What's the
+difference between the implementation of p\_threads and CUDA threads?)
+Give at least 3 important distinctions.
+
+
+\begin{answer}
+1. Different p\_threads can execute different instructions while CUDA threads are SPMD which
+means that they are executing the same instructions on different data. 
+
+2. The synchronization and scheduling of CUDA threads are done by hardware, while those of 
+p\_threadsare done by software. 
+
+3. CUDA threads are mapped restrictly into certain blocks and store data in execution context
+in their block. Before every execution, 32 data are chosen to fill all warps and execute the 
+same instructions. 
+
+
+\end{answer}
+
+\item
+Still convinced of their binary search's potential, they write this kernel function.
+
+\begin{lstlisting}[language=C,basicstyle=\ttfamily]
+// Array S and R are of size n
+// Array A is of size m, with its elements ordered.
+__global__ void cudaBinarySearch(int n, int m, int *S, int *A, int *R) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i >= n) return;
+    
+    int search = S[i];
+    int left = 0, right = m - 1, middle = 0;
+    R[i] = -1;  // In case not found
+    // Binary Search
+    while (left <= right) {
+      middle = left + (right - left) / 2;      
+      if (search < A[middle])
+        right = middle - 1;
+      else if (search > A[middle])
+        left = middle + 1;
+      else
+        R[i] = middle;
+        break;
+    }
+}
+\end{lstlisting}
+
+After testing it out, they find that they get very little performance
+gain relative to the number of threads that they are running. Sullenly,
+they come back to you and ask where they went wrong. Give at least
+two reasons for this code's poor performance.
+
+\begin{answer}
+1. The kernel function has too many control flow, like while, if-else. All CUDA threads in
+the same block are executing the same instructions, which causes they have to execute some extra
+instructions and mask some unwanted results to ensure all threads have their results. 
+2. It read frequently from global memory, caused by A[middle]. 
+\end{answer}
+\end{choice}
+
+\section*{Problem 2: Problem Scaling}
+
+This problem is a three-dimensional extension of the grid problem
+described in the lecture on workload-driven performance evaluation:
+\begin{center}
+\cref{\actualcoursehome/lectures/10_perfeval.pdf}{\visiblecoursehome/lectures/10\_perfeval.pdf}.
+\end{center}
+
+
+Consider an iterative solver that operates on a three-dimensional grid
+of size $N \times N \times N$.  It requires
+$N$ iterations to reach convergence.  We refer to
+the parameter $N$ as the {\em problem size}.  Increasing $N$ by a
+factor of 2 increases the number of grid elements 8$\times$ and the number
+of iterations 2$\times$.
+
+The state of the system is represented as a three-dimensional array of
+values {\tt state}.  The function {\tt update} computes a new value of
+the state based on the current state.  For each element {\tt
+  state[x][y][z]}, {\tt update} computes the new value as a function of its current value and that
+of its six neighbors:
+\begin{description}
+\item[Self:]  {\tt state[x][y][z]}
+\item[West:] {\tt state[x-1][y][z]}
+\item[East:] {\tt state[x+1][y][z]}
+\item[North:] {\tt state[x][y-1][z]}
+\item[South:] {\tt state[x][y+1][z]}
+\item[Down:] {\tt state[x][y][z-1]}
+\item[Up:] {\tt state[x][y][z+1]}
+\end{description}
+(You don't need to know the exact function.)
+
+The overall operation can then be described in a pseudo-C notation as:
+\begin{lstlisting}[language=C,basicstyle=\ttfamily]
+// For each iteration
+for (iter = 0; iter < N; iter++) {
+   // Main computation
+   for all x, y, z in 0..N
+       nstate[x][y][z] = update(state, x, y, z);
+   for all x, y, z in 0..N
+       state[x][y][z] = nstate[x][y][z]
+}
+\end{lstlisting}
+
+In mapping the computation onto $P$ processors, the state array is
+split into $P$ cubic blocks, each containing $N^3/P$ array elements.
+Each iteration (labeled ``Main computation'') involves
+having each processor 1) communicate the boundary values with its (up
+to six) neighbors, and 2) computing the update function for all
+$N^3/P$ of its assigned elements.  The program uses $M$ gigabytes of
+memory per processor and runs in total time $T$.
+
+\begin{figure}
+\begin{center}
+% \includegraphics[width=6in]{figs/cubes.pdf} %% QUES
+Figure omitted
+\end{center}
+\caption{Scaling a problem by doubling the grid size $N$ (a), or by increasing the number of processors  8$\times$ (b).}
+\label{fig:scale}
+\end{figure}
+
+\begin{enumerate}
+\item Consider the following two scaling possibilities, yielding a problem of size $N'$
+  running on $P'$ processors, as illustrated in Figure \ref{fig:scale}.
+\begin{description}
+\item[(a)] Double the value of $N$, while holding $P$ constant:  $N' = 2N$, $P' = P$
+\item[(b)] Hold $N$ constant, while increasing $P$ by 8$\times$: $N' = N$, $P' = 8P$
+\end{description}
+
+Fill in the table below showing how the amounts of computation and
+communication for a single processor, performing a single iteration
+would scale, relative to the original problem.  (For example, $2\times$ would indicate growth by a
+factor of two.)
+\begin{center}
+\renewcommand{\arraystretch}{2}
+\begin{tabular}{|l|c|c|}
+\hline
+& \makebox[1.5in][c]{Computation} & \makebox[1.5in][c]{Communication} \\
+\hline
+(a): $N' = 2N$, $P' = P$ & $8\times$
+& $4\times$
+\\
+\hline
+(b): $N' = N$, $P' = 8P$ & $\frac{1}{8}\times$
+& $\frac{1}{4}\times$
+\\
+\hline
+\end{tabular}
+\end{center}
+\item 
+Now assume both $N$ and $P$ can vary.  Based on these specific cases,
+give formulas for how the computation, communication, and arithmetic
+intensity would scale as functions of $N$ and $P$.  Again, quantify
+these values with respect to the computation and communication each
+processor would perform during a single iteration.  (By way of
+reference, the formulas for the two-dimensional version were given in
+slide 7 of the lecture.)
+\begin{center}
+\renewcommand{\arraystretch}{2}
+\begin{tabular}{|c|c|c|}
+\hline
+ \makebox[1.5in]{Computation} & \makebox[1.5in]{Communication} & \makebox[1.5in]{Arithmetic Intensity}\\
+\hline
+$\frac{N^3}{P}$ & $\frac{N^2}{P^{2/3}}$ & $\frac{N}{P^{1/3}}$
+ \\
+\hline
+\end{tabular}
+\end{center}
+\item  Suppose we have a machine with $8P$ processors, each
+  identical to the original $P$ processors.  We consider three scaling
+  possibilities, yielding a new problem of size $N'$ requiring
+  total time $T'$ and $M'$ gigabytes per processor:
+\begin{description}
+\item[Problem scaling:] $N' = N$. Solve the same problem faster.  Goal is to minimize $T'$
+\item[Memory scaling:] $M' = M$.  Make full use of the increased total memory.  Goal is to maximize $N'$.
+\item[Time scaling:] $T' = T$.  Solve a bigger problem in the same amount of time.  Goal is to maximize $N'$.
+\end{description}
+Fill in the following table with formulas indicating the problem size
+$N'$, the per-processor memory requirement $M'$, the ideal total time
+$T'$, and the change in arithmetic intensity.
+(By way of reference, this information for the two-dimensional version was given in slides 17, 22, and 25 of the lecture.)
+\begin{center}
+\renewcommand{\arraystretch}{2}
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+Scaling Type & \makebox[.6in]{$N'$} & \makebox[.6in]{$M'$} & \makebox[.6in]{$T'$} & \makebox[1in]{Arith.~Intensity} \\
+\hline
+Problem & $N$ & $\frac{1}{8}M$ & $\frac{1}{8}T$ & $\frac{1}{2}\times$  \\
+\hline
+Memory & $2N$ & $M$ & $2T$ & $1\times$  \\
+\hline
+Time & $2^{3/4}N$ & $2^{-3/4}M$ & $T$ & $2^{-1/4}\times$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{enumerate}  
+
+\section*{Problem 3: Cache coherency}
+
+  Your friend suggests modifying the MSI coherence protocol so that PrRd / BusRd behavior on the
+  I-to-S transition is changed to PrRd / BusRdX, as is shown below:
+
+\begin{center}
+% \includegraphics[width=3in]{figs/msi.pdf} %% QUES
+Figure omitted
+\end{center}
+
+
+\begin{choice}
+
+\item
+  Is the memory system still coherent? What impact does this change have on the system?
+
+\begin{answer}
+The memory system is still conherent. 
+
+Even if a processor is only going to read the line, instead of writing it, other processors with the 
+line will turn to invalid. Even worse, it will flush those in modified state. 
+So this change will lower the efficiency of the overall system. 
+
+\end{answer}
+
+\newpage
+\item 
+  You are hired by Intel to design an invalidation based cache-coherent processor with a large number of cores.
+The 
+  main application for this processor will be to train a chess AI by playing games against itself for experiments. It is critical that it
+  doesn't play too many games during training to maintain the validity of the experiment, so we store how many
+  games are played in a shared counter:
+  \begin{lstlisting}
+  int num_games = 100000;
+  int games_played = 0;
+
+  // This code is run on each core
+  while (true) {
+    // Atomically get value of count prior to increment, and
+    // write incremented value to games_played
+    int val = atomic_add(&games_played, 1);   
+
+    if (val > num_games) break;
+    play_game()
+  }
+  \end{lstlisting}
+
+  Unsure on how to design the cache coherence of this processor, you check with one of the senior designers. She suggests that you 
+  should use a bus-based, snooping coherence implementation, rather than a directory-based protocol, because 
+ the broadcasting it performs would be more
+  efficient in this case. Do you agree or disagree? Why or why not?
+
+\begin{answer}
+  I agree with her. In this program, \lstinline{num_games} won't change and always stays in cache. 
+  But \lstinline{game_played} will be modified frequently. If the system is directory-based, 
+  most of the communication will involve the home node, which makes the workload imbalanced. 
+
+  \textcolor{red}{
+    Disagree, this program has frequent writes so only one core will have the shared counter 
+    in cache at a time. Thus a directory would be better as it would only have to invalidate 
+    one other cache line, rather than broadcast to all.
+  }
+
+  \textcolor{cyan}{
+    The cache coherence is controlled by cache controller, not processor. So the heavy communication
+    on a singal node won't affect program speed significantly. 
+  }
+\end{answer}
+
+\newpage
+\item 
+  You are now tasked with finding the best performing chess AI. You plan to run the following code on the
+  processor:
+  \begin{lstlisting}
+  int num_experiments = 10000;
+  int best_score = 0;
+
+  #pragma omp parallel for 
+  for (int i = 0; i < num_experiments; i++) {
+    int score = perform_experiment(i);
+    if (score > best_score) {
+      // Atomically retrieve best score, compute max,
+      // and write result to best_score
+      atomic_max(&best_score, score);
+    }
+  }
+  \end{lstlisting}
+  Trying to improve the performance of this code, you remove the \texttt{if} statement prior to the \verb|atomic_max|,
+  noticing that it is redundant. Suprisingly, the performance of the program is drastically reduced. Why did
+  this happen?
+
+\begin{answer}
+  Without the \lstinline{if} statement, all processors will execute the \lstinline{atomic_max} in
+  sequence. But with the \lstinline{if} statement, only those procrssors with \lstinline{score > best_score} 
+  will execute the \lstinline{atomic_max} sequentially. 
+  \textcolor{red}{
+    Remember that fetch and max always causes a write. By removing the if statement, every 
+    iteration per- forms a write even if no write was needed. This causes each iteration to take 
+    a cache miss on best score.
+  }
+\end{answer}
+
+\newpage
+\item 
+  You are hired as a TA for 15-418/618.  In an attempt to speed up
+  exam grading, you decide to multithread the grading
+  program on a cache coherent system as shown below
+  \begin{lstlisting}
+  int scores[NUM_STUDENTS];
+
+  #pragma omp parallel for schedule(dynamic)
+  for (int student = 0; student < NUM_STUDENTS; student++) {
+      for (int problem = 0; problem < NUM_EXAM_PROBLEMS; problem++) {
+          // performs a write to scores[student] 
+          grade_and_update(student, problem, &scores[student]); 
+      }
+  }
+  \end{lstlisting}
+  Dismayed by the speed of this program, you analyze the runtime of this program and find that there
+  is a large amount of bus communication during the execution.
+
+  What kind of communication is happening in this program? What performance problem is this a result of?
+
+\begin{answer}
+  \textcolor{red}{
+    There is a large amount of artifactual communication happening in this program. As multiple 
+    student’s scores occupy the same cache line, there is a lot of false sharing requiring large 
+    amounts of communication due to the coherence protocol.
+  }
+\end{answer}
+
+\end{choice}  
+
+
+\end{document}
