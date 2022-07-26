@@ -3,10 +3,14 @@
 #include <math.h>
 #include <stdio.h>
 #include <vector>
+#include <utility>
+#include <iostream>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <driver_functions.h>
+
+#include "cudaVector.h"
 
 #include "cudaRenderer.h"
 #include "image.h"
@@ -32,6 +36,32 @@ struct GlobalConstants {
     int imageHeight;
     float* imageData;
 };
+
+struct Node
+{
+    int height;
+    float4 color;
+
+    __device__ Node(int h, float4 c)
+    {
+        height = h;
+        color = c;
+    }
+};
+
+struct Pixel
+{
+    cudaVector<Node> circles;
+};
+
+struct ImageRow
+{
+    Pixel* imagePixel;
+};
+
+ImageRow* imageColor;
+
+__shared__ int mutex;
 
 // Global variable that is in scope, but read-only, for all cuda
 // kernels.  The __constant__ modifier designates this variable will
@@ -317,8 +347,9 @@ __global__ void kernelAdvanceSnowflake() {
 // given a pixel and a circle, determines the contribution to the
 // pixel from the circle.  Update of the image is done in this
 // function.  Called by kernelRenderCircles()
+// TODO: shadePixel()
 __device__ __inline__ void
-shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
+shadePixel(int circleIndex, float2 pixelCenter, float3 p, Pixel* pixelPtr) {
 
     float diffX = p.x - pixelCenter.x;
     float diffY = p.y - pixelCenter.y;
@@ -365,16 +396,28 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
 
     // BEGIN SHOULD-BE-ATOMIC REGION
     // global memory read
+    
+    bool leaveLoop = false;
+    while (!leaveLoop)
+    {
+        if (atomicExch(&mutex, 1) == 0)
+        {
+            // float4 existingColor = *imagePtr;
+            // float4 newColor;
+            // newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
+            // newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
+            // newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
+            // newColor.w = alpha + existingColor.w;
 
-    float4 existingColor = *imagePtr;
-    float4 newColor;
-    newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
-    newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
-    newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
-    newColor.w = alpha + existingColor.w;
+            // // global memory write
+            // *imagePtr = newColor;
+            // pixelPtr->circles.push_back(Node(p.z, make_float4(rgb.x, rgb.y, rgb.z, alpha)));
+            pixelPtr->circles.push_back(Node(p.z, make_float4(rgb.x, rgb.y, rgb.z, alpha)));
 
-    // global memory write
-    *imagePtr = newColor;
+            leaveLoop = true;
+            atomicExch(&mutex, 0);
+        }
+    }
 
     // END SHOULD-BE-ATOMIC REGION
 }
@@ -384,9 +427,10 @@ shadePixel(int circleIndex, float2 pixelCenter, float3 p, float4* imagePtr) {
 // Each thread renders a circle.  Since there is no protection to
 // ensure order of update or mutual exclusion on the output image, the
 // resulting image will be incorrect.
-__global__ void kernelRenderCircles() {
-
+// TODO: kernelRenderCircle()
+__global__ void kernelRenderCircles(ImageRow* imageColor) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
+    printf("kerndelRenderCircle\n");
 
     if (index >= cuConstRendererParams.numCircles)
         return;
@@ -417,14 +461,58 @@ __global__ void kernelRenderCircles() {
 
     // for all pixels in the bonding box
     for (int pixelY=screenMinY; pixelY<screenMaxY; pixelY++) {
-        float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + screenMinX)]);
+        // float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + screenMinX)]);
+        Pixel* pixelPtr = &imageColor[pixelY].imagePixel[screenMinX];
         for (int pixelX=screenMinX; pixelX<screenMaxX; pixelX++) {
             float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
                                                  invHeight * (static_cast<float>(pixelY) + 0.5f));
-            shadePixel(index, pixelCenterNorm, p, imgPtr);
-            imgPtr++;
+            shadePixel(index, pixelCenterNorm, p, pixelPtr);
+            pixelPtr++;
         }
     }
+}
+
+// TODO: kernelPaint()
+__global__ void kernelPaint(ImageRow* imageColor)
+{
+    int i = blockDim.y * blockIdx.y + threadIdx.y;
+    int j = blockDim.x * blockIdx.x + threadIdx.x;
+    printf("Index is (%d, %d)\n", i, j);
+    if (j < cuConstRendererParams.imageWidth && i < cuConstRendererParams.imageHeight)
+    {
+        Pixel* pixelPtr = &imageColor[i].imagePixel[j];
+        float4 newColor; 
+        newColor.x = newColor.y = newColor.z = 0;
+        int maxheight = -1;
+        printf("Thread (%d, %d): vector size is %d\n", i, j, pixelPtr->circles.size());
+        for (int k = 0; k < pixelPtr->circles.size(); k++)
+        {
+            int currentIndex = -1;
+            for (int l = 0; l < pixelPtr->circles.size(); l++)
+            {
+                int height = pixelPtr->circles[l].height;
+                if (height > maxheight && (currentIndex < 0 || height < pixelPtr->circles[currentIndex].height))
+                {
+                    currentIndex = l;
+                }
+            }
+            if (currentIndex < 0)
+            {
+                break;
+            }
+            maxheight = pixelPtr->circles[currentIndex].height;
+            float4 currentColor = pixelPtr->circles[currentIndex].color;
+            float alpha = currentColor.w;
+            float oneMinusAlpha = 1 - alpha;
+            newColor.x = currentColor.x * alpha + newColor.x * oneMinusAlpha;
+            newColor.y = currentColor.y * alpha + newColor.y * oneMinusAlpha;
+            newColor.z = currentColor.z * alpha + newColor.z * oneMinusAlpha;
+            newColor.w += alpha;
+        }
+        float4* imagePixel = (float4*)(&cuConstRendererParams.imageData[i * cuConstRendererParams.imageWidth + j]);
+        *imagePixel = newColor;
+    }
+    cudaFree(imageColor);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -549,6 +637,7 @@ CudaRenderer::setup() {
     params.color = cudaDeviceColor;
     params.radius = cudaDeviceRadius;
     params.imageData = cudaDeviceImageData;
+    params.color = cudaDeviceColor;
 
     cudaMemcpyToSymbol(cuConstRendererParams, &params, sizeof(GlobalConstants));
 
@@ -633,13 +722,68 @@ CudaRenderer::advanceAnimation() {
     cudaDeviceSynchronize();
 }
 
+// TODO: CudaRenderer::render()
+__global__ void imageColorSetup(ImageRow* imageColor)
+{
+    printf("One thread\n");
+    int index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (index < cuConstRendererParams.imageHeight)
+    {
+        printf("Initializing imageColor\n");
+        cudaError_t code = cudaMalloc(&imageColor[index].imagePixel, sizeof(Pixel) * cuConstRendererParams.imageWidth);
+        printf("imageColorSetup: %s, %s\n", cudaGetErrorName(code), cudaGetErrorString(code));
+    }
+}
+
+__global__ void kernelSetup(ImageRow* imageColor)
+{
+    int i = blockDim.y * blockIdx.y + threadIdx.y;
+    int j = blockDim.x * blockIdx.x + threadIdx.x;
+    int index = i * cuConstRendererParams.imageWidth + j;
+    printf("%d trying to enter kernelSetup\n", index);
+    if (i < cuConstRendererParams.imageHeight && j < cuConstRendererParams.imageWidth)
+    {
+        printf("%d entered kernelSetup\n", index);
+        imageColor[i].imagePixel[j].circles = cudaVector<Node>();
+    }
+}
+
 void
 CudaRenderer::render() {
+    cudaError_t code = cudaGetLastError();
+    std::cout << "Beginning: " << code << std::endl;
+    std::cout << cudaGetErrorName(code) << std::endl << cudaGetErrorString(code) << std::endl;
 
     // 256 threads per block is a healthy number
-    dim3 blockDim(256, 1);
-    dim3 gridDim((numCircles + blockDim.x - 1) / blockDim.x);
+    int imageSize = image->height * image->width;
+    dim3 blockDim_circle(256, 1);
+    dim3 gridDim_circle((numCircles + blockDim_circle.x - 1) / blockDim_circle.x);
 
-    kernelRenderCircles<<<gridDim, blockDim>>>();
+    dim3 blockDim_pixel(16, 16);
+    int gridNum = (imageSize + blockDim_pixel.x * blockDim_pixel.y - 1) / (blockDim_pixel.x * blockDim_pixel.y);
+    int sideLen = (int)ceil(sqrt(gridNum));
+    dim3 gridDim_pixel(sideLen, sideLen);
+    printf("%d * %d = %d\n",sizeof(ImageRow), image->height, sizeof(Image) * image->height);
+
+    // Pixel* imageColor;
+    code = cudaMalloc(&imageColor, sizeof(ImageRow) * image->height);
+    std::cout << "Malloc ImageRow: " << code << std::endl;
+    std::cout << cudaGetErrorName(code) << std::endl << cudaGetErrorString(code) << std::endl;
+    printf("size = %d\n", sizeof(imageColor));
+
+    printf("--------------------Starting\n");
+    imageColorSetup<<<gridDim_circle, blockDim_circle>>>(imageColor);
+    kernelSetup<<<gridDim_pixel, blockDim_circle>>>(imageColor);
     cudaDeviceSynchronize();
+    printf("--------------------KernelSetup\n");
+
+    kernelRenderCircles<<<gridDim_circle, blockDim_pixel>>>(imageColor);
+    cudaDeviceSynchronize();
+    printf("--------------------KernelrenderCircles\n");
+
+    kernelPaint<<<gridDim_pixel, blockDim_pixel>>>(imageColor);
+    cudaDeviceSynchronize();
+    printf("--------------------KernelPaint\n");
+
+    cudaFree(imageColor);
 }
