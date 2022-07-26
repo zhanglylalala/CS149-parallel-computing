@@ -42,10 +42,32 @@ static inline int nextPow2(int n) {
 // Also, as per the comments in cudaScan(), you can implement an
 // "in-place" scan, since the timing harness makes a copy of input and
 // places it in result
+__global__ void upSweep(long long N, int* result, int d)
+{
+    long long doubleD = 2 * d;
+    long long index = (blockIdx.x * blockDim.x + threadIdx.x) * doubleD;
+    if (index + doubleD - 1 < N)
+    {
+        result[index + doubleD - 1] += result[index + d - 1];
+    }
+}
+
+__global__ void downSweep(long long N, int* result, int d)
+{
+    long long doubleD = 2 * d;
+    long long index = (blockIdx.x * blockDim.x + threadIdx.x) * doubleD;
+    if (index + doubleD - 1< N)
+    {
+        int tmp = result[index + d - 1];
+        result[index+ d - 1] = result[index + doubleD - 1];
+        result[index + doubleD - 1] += tmp;
+    }
+}
+
 void exclusive_scan(int* input, int N, int* result)
 {
 
-    // CS149 TODO:
+    // TODO:
     //
     // Implement your exclusive scan implementation here.  Keep input
     // mind that although the arguments to this function are device
@@ -54,6 +76,41 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
 
+    const int threadsPerBlock = 512;
+
+    int* tmp;
+    int newN;
+    if (N & (N - 1))
+    {
+        newN = nextPow2(N);
+    }
+    else
+    {
+        newN = N;
+    }
+    int blocks = (newN + threadsPerBlock - 1) / threadsPerBlock;
+
+    cudaMalloc(&tmp, newN * sizeof(int));
+    cudaMemcpy(tmp, input, N * sizeof(int), cudaMemcpyDeviceToDevice);
+
+    for (int i = 1; i <= newN / 2; i *= 2)
+    {
+        int num = newN / i / 2;
+        blocks = (num + threadsPerBlock - 1) / threadsPerBlock;
+        upSweep<<<blocks, threadsPerBlock>>>(newN, tmp, i);
+    }
+    
+    int zero = 0;
+    cudaMemcpy(tmp + (newN - 1), &zero, sizeof(int), cudaMemcpyHostToDevice);
+
+    for (int i = newN / 2; i > 0; i /= 2)
+    {
+        int num = newN / i / 2;
+        blocks = (num + threadsPerBlock - 1) / threadsPerBlock;
+        downSweep<<<blocks, threadsPerBlock>>>(newN, tmp, i);
+    }
+
+    cudaMemcpy(result, tmp, N * sizeof(int), cudaMemcpyDeviceToDevice);
 
 }
 
@@ -147,9 +204,31 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
 // indices `i` for which `device_input[i] == device_input[i+1]`.
 //
 // Returns the total number of pairs found
+
+__global__ void setFlag(int* device_input, int length, int* flags)
+{
+    int index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (index < length - 1)
+    {
+        flags[index] = device_input[index] == device_input[index + 1] ? 1 : 0;
+    }
+}
+
+__global__ void getIndices(int* ex_scan, int length, int* device_output)
+{
+    int index = blockDim.x * blockIdx.x + threadIdx.x;
+    if (0 < index && index < length)
+    {
+        if (index > 0 && ex_scan[index - 1] != ex_scan[index])
+        {
+            device_output[ex_scan[index - 1]] = index - 1;
+        }
+    }
+}
+
 int find_repeats(int* device_input, int length, int* device_output) {
 
-    // CS149 TODO:
+    // TODO:
     //
     // Implement this function. You will probably want to
     // make use of one or more calls to exclusive_scan(), as well as
@@ -160,8 +239,26 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // exclusive_scan function with them. However, your implementation
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
+    const int threadPerBlock = 512;
+    const int blocks = (length + threadPerBlock - 1) / threadPerBlock;
 
-    return 0; 
+    int* flags, *ex_scan;
+    cudaMalloc(&flags, length * sizeof(int));
+    cudaMalloc(&ex_scan, length * sizeof(int));
+
+    setFlag<<<blocks, threadPerBlock>>>(device_input, length, flags);
+
+    cudaMemcpy(ex_scan, flags, length * sizeof(int), cudaMemcpyDeviceToDevice);
+    exclusive_scan(flags, length, ex_scan);
+    int output_len;
+    cudaMemcpy(&output_len, ex_scan + (length - 1), sizeof(int), cudaMemcpyDeviceToHost);
+    
+    getIndices<<<blocks, threadPerBlock>>>(ex_scan, length, device_output);
+
+    cudaFree(flags);
+    cudaFree(ex_scan);
+
+    return output_len;
 }
 
 
