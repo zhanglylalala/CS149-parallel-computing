@@ -1,0 +1,818 @@
+%% You can use this file to create your answer for Exercise 5.  
+%% Fill in the places labeled by comments.
+%% Generate a PDF document by with the command `pdflatex ex5'.
+
+\documentclass[11pt]{article}
+
+
+\usepackage{times}
+\usepackage{listings}
+\usepackage{enumerate}
+\usepackage{courier}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+
+\input{config-ex5}
+
+%% Page layout
+\oddsidemargin 0pt
+\evensidemargin 0pt
+\textheight 600pt
+\textwidth 469pt
+\setlength{\parindent}{0em}
+\setlength{\parskip}{1ex}
+
+%% Colored hyperlink 
+\newcommand{\cref}[2]{\href{#1}{\color{blue}#2}}
+
+%% Customization to listing
+\lstset{basicstyle=\ttfamily\small,language=C,morekeywords={boolean,xbegin,xabort,xend}}
+
+%% Enumerate environment with alphabetic labels
+\newenvironment{choice}{\begin{enumerate}[A.]}{\end{enumerate}}
+\newenvironment{subchoice}{\begin{enumerate}[(1)]}{\end{enumerate}}
+%% Environment for supplying answers to problem
+\newenvironment{answer}{\begin{minipage}[c][2.0in]{\textwidth}}{\end{minipage}}
+
+
+\begin{document}
+\begin{flushright}                         
+{\large\bf Full Name: \makebox[2in][l]{    
+%% Put your name on the next line          
+                                           
+                                           
+}} \\[1ex]                                 
+                                           
+{\large\bf Andrew Id: \makebox[2in][l]{\tt 
+%% Put your Andrew ID on the next line     
+                                           
+}} \\[1ex]                                 
+\end{flushright}                           
+\vspace*{0.3in}                            
+\begin{center}
+\LARGE
+15-418/618 \thisterm{} \\
+Exercise 5
+\end{center}
+
+\begin{center}
+\Large        
+\begin{tabular}{ll}
+\hline             
+Assigned: & \dateassigned{}  \\
+Due: &  \datedue{}, 11:00~pm  \\
+\hline       
+\end{tabular}
+\end{center} 
+
+\section*{Overview}
+
+This exercise is designed to help you better understand the lecture
+material and be prepared for the style of questions you will get on
+the exams.  The questions are designed to have simple answers.  Any
+explanation you provide can be brief---at most 3 sentences.  You
+should work on this on your own, since that's how things will be when
+you take an exam.
+
+You will submit an electronic version of this assignment to Gradescope 
+as a PDF file.  For those of you familiar with the \LaTeX{} text 
+formatter, you can download the template, configuation, and figure files at: 
+\begin{center} 
+  \cref{\actualcoursehome/exercises/config-ex5.tex}{\visiblecoursehome/exercises/config-ex5.tex}\\ 
+  \cref{\actualcoursehome/exercises/ex5.tex}{\visiblecoursehome/exercises/ex5.tex} \\
+\end{center} 
+Instructions for how to use this template are included as comments in 
+the file.  Otherwise, you can use this PDF document as your starting 
+point.  You can either: 1) electronically modify the PDF, or 2) print 
+it out, write your answers by hand, and scan it.  In any case, we 
+expect your solution to follow the formatting of this document. 
+
+\newpage
+
+\section*{Problem 1: Locking and Transactional Memory}
+
+
+Consider the following very simple banking system, where all account values are whole dollars.
+\begin{lstlisting}
+// Account balances in whole dollars
+int balance[NACCT];
+\end{lstlisting}
+
+The only supported banking operations are to transfer money between accounts
+and to check that the sum of all balances equals or exceeds some threshold value.
+
+\begin{lstlisting}
+// Transfer money between accounts.
+// Do not allow from_acct to become negative
+boolean transfer(int to_acct, int from_acct, int amount);
+
+// Check that sum of all accounts equals or exceeds some threshold
+boolean check_sum(int threshold);
+\end{lstlisting}
+
+If a transfer operation would cause an account to become overdrawn,
+function \texttt{transfer} should return false without changing any balances.  (You can
+assume that {\tt amount} is not negative.)
+
+Function \verb@check_sum@ must be implemented in such a way that it
+gets a value for the sum that would be a valid snapshot of the
+state of the balances for some sequentially consistent ordering of the
+transactions.
+
+\newpage
+\subsection*{1A: A Banking System with Locks}
+
+Suppose
+you are provided a mutual exclusion lock for each account:
+\begin{lstlisting}
+int lock[NACCT];
+\end{lstlisting}
+
+The library functions for acquiring and releasing a lock have the following prototypes:
+\begin{lstlisting}
+void acquire(int *lockp);
+void release(int *lockp);  
+\end{lstlisting}
+
+Fill in code for these two operations using locking.  You may not add
+any additional locks.  Make sure your code cannot deadlock.  Try to
+minimize the amount of time that locks are held.
+
+\begin{enumerate}
+\item Transfer
+%% Fill in the lines below with your code for 1A-1
+\begin{lstlisting}
+boolean transfer(int to_acct, int from_acct, int amount) {
+    boolean ok = true;
+    acquire(lock + from_acct);
+    if (balance[from_acct] < amount)
+    {
+      ok = false;
+    }
+    else
+    {
+      balance[from_acct] -= amount;
+    }
+    release(lock + from_acct);
+
+    if (ok)
+    {
+      acquire(lock + to_acct);
+      balance[to_acct] += amount;
+      release(lock + to_acct);
+    }
+
+    return ok;
+}
+\end{lstlisting}
+
+\item Check Sum
+%% Fill in the lines below with your code for 1A-2
+\begin{lstlisting}
+boolean check_sum(int threshold) {
+    int sum = 0;
+    for (Int i = 0; i < NACCT; i++)
+    {
+      acquire(lock + i);
+      sum += balance[i];
+      release(lock + i);
+    }
+
+    return sum >= threshold;
+}
+\end{lstlisting}
+\end{enumerate}
+
+\newpage
+\subsection*{1B: A Banking System with Transactional Memory}
+
+Suppose we have a transactional memory system supporting the following operations:
+\begin{lstlisting}
+// Begin transaction
+void xbegin();
+
+// Abort transaction
+void xabort();
+
+// (Attempt to) commit transaction.
+// Returns true if successful, false if failed
+boolean xend();
+\end{lstlisting}
+
+Rewrite the two functions using transactional memory primitives rather than locks.
+
+\begin{enumerate}
+\item Transfer
+%% Fill in the lines below with your code for 1B-1
+\begin{lstlisting}
+boolean transfer(int to_acct, int from_acct, int amount) {
+    boolean ok;
+    while (true)
+    {
+      xbegin();
+      ok = balance[from_acct] >= amount;
+      if (ok)
+      {
+        balance[from_acct] -= amount;
+        balance[to_acct] += amount;
+        if (xend())
+        {
+          break;
+        }
+      }
+      else
+      {
+        xabort();
+      }
+    }
+
+   return ok;
+}
+\end{lstlisting}
+
+\item Check Sum
+%% Fill in the lines below with your code for 1B-2
+\begin{lstlisting}
+boolean check_sum(int threshold) {
+    int sum = 0;
+    while (true)
+    {
+      sum = 0;
+      xbegin();
+      for (int i = 0; i < NACCT; i++)
+      {
+        sum += balance[i];
+      }
+      if (xend())
+      {
+        break;
+      }
+    }
+
+    return sum >= threshold;
+}
+\end{lstlisting}
+\item If the system performs millions of transactions per second over
+  thousands of bank accounts, what problem to you forsee for the  implementation based on transactional memory?
+  Assume the transactional memory is implemented using lazy versioning and optimistic conflict detection.
+
+\begin{answer}
+%% Write your answer for 1B-3 here
+
+\textcolor{red}{Chances are that \lstinline{check_sum} would keep failing, because ongoing 
+transfers would keep causing writes to the array \lstinline{balance}.}
+
+\textcolor{cyan}{Lazy versioning means that it won't write to memory directly, namely it won't 
+create too much memory write operations. Optimistic conflict detection means that it only detects
+conflict on \lstinline{xend()}. \lstinline{check_sum} need a lot of time to operate on 
+\lstinline{balance}, while \lstinline{transfer} only need to operate two elements. So when 
+\lstinline{check_sum} tries to commit, it often will find that some of elements is been
+modified, and hence failed. }
+
+\end{answer}
+\end{enumerate}
+
+\newpage
+
+\subsection*{1C: Improving transactional memory performance}
+
+Suppose that you can be guaranteed that there will be only one
+outstanding call to \texttt{check\_sum} at a time, and that it will be
+relatively infrequent (around once per hour.)  Devise a simple scheme, without any locks,
+where the system can temporarily force all transfers to wait
+while a sum is being computed, thereby minimizing the
+chance of the sum computation failing.  You may make use of the following
+additional global variable:
+
+\begin{lstlisting}
+boolean summing = false;
+\end{lstlisting}
+
+\begin{enumerate}
+\item Transfer
+%% Fill in the lines below with your code for 1C-2
+\begin{lstlisting}
+boolean transfer(int to_acct, int from_acct, int amount) {
+    boolean ok;
+    while (true)
+    {
+      xbegin();
+      ok = balance[from_acct] >= amount && !summing;
+      if (ok)
+      {
+        balance[from_acct] -= amount;
+        balance[to_acct] += amount;
+        if (xend())
+        {
+          break;
+        }
+      }
+      else
+      {
+        xabort();
+      }
+    }
+
+   return ok;
+}
+\end{lstlisting}
+
+\item Check Sum
+%% Fill in the lines below with your code for 1C-3
+\begin{lstlisting}
+boolean check_sum(int threshold) {
+    int sum = 0;
+    summing = true;
+    while (true)
+    {
+      sum = 0;
+      xbegin();
+      for (int i = 0; i < NACCT; i++)
+      {
+        sum += balance[i];
+      }
+      if (xend())
+      {
+        break;
+      }
+    }
+    summing = false;
+
+    return sum >= threshold;
+}
+\end{lstlisting}
+\end{enumerate}
+
+\newpage
+
+\section*{Problem 2: Processor Scaling}
+
+This problem explores the two scaling models presented on slides 5--9 in the lecture on Heterogeneous Parallelism:
+\begin{center}
+\cref{\actualcoursehome/lectures/19_heterogeneity.pdf}{\visiblecoursehome/lectures/21\_heterogeneity.pdf}.
+\end{center}
+These are based on the paper ``Amdahl's Law in the Multicore Era,'' by
+Mark D. Hill and Michael R. Marty of the University of Wisconsin,
+published in {\em IEEE Computer}, July, 2008.
+
+In both models, we express computing performance and resources (e.g.,
+chip area) relative to a baseline processor.  In scaling to a
+processor with $r$ resource units (scaled such that the baseline
+processor has $r=1$), we obtain a processor with single-threaded
+performance ${\it perf}(r)$ (scaled such ${\it perf}(1) = 1$.)
+
+The slides show graphs for the case of ${\it perf}(r) = \sqrt{r}$.
+This function is plausible---it captures the idea that increasing
+processing resources will improve performance, but not in a linear
+way.  Increasing to large values of $r$ yields diminishing returns in
+terms of single-threaded processor performance.  We will generalize
+this model to one with ${\it perf}(r) = r^{\alpha}$, where $\alpha$ is
+value with $0.0 \leq \alpha \leq 1.0$.  (For example, the slides are
+based on $\alpha = 0.5$.)
+
+For scaling the system design to use $n$ resource units, two
+options are considered:
+\begin{description}
+\item[Homogeneous:] We create a new processor design that uses $r$
+  resource units, and populate the system with $p = n/r$ identical
+  processors.  In this case, $p$ must be an integer, but $r$ need not
+  be.  For example, to get $p=5$ when $n=16$, we would have $r = 16/5 = 3.2$.
+
+\item[Heterogeneous:] We create a design that uses $r$ resource units (where $r$ is an integer),
+  and then create a system with one of these more powerful processors,
+  plus $n-r$ baseline processors, giving $p = n - r + 1$ total processors.
+\end{description}
+
+As with the conventional presentation of Amdahl's Law, we assume that
+the problem to be solved has some fraction $f$ that can use arbitrary
+levels of parallelism, while the remaining fraction $1-f$ must be
+executed sequentially.
+
+With performance normalized to a single baseline processor, Amdahl's Law
+states that the speedup over the baseline is given by the equation
+\begin{eqnarray}
+S & = & \frac{1}{T_{\rm seq} + T_{\rm par}} \label{eqn:amdahl:basic}
+\end{eqnarray}
+where $T_{\rm seq}$ is the time required to execute the sequential
+portion of the code and $T_{\rm par}$ is the time required to execute
+the parallel portion of the code, with both of these using all
+available resources.
+
+\newpage
+
+\subsection*{2A: Homogeneous Model Speedup}
+Slide 6 gives the following equation for the speedup in the homogeneous model:
+\begin{eqnarray}
+S_{\rm ho} & = & \frac{1}{\frac{1-f}{{\it perf}(r)} + \frac{f}{{\it
+      perf}(r) \cdot  \frac{n}{r}}} \label{eqn:amdahl:homogeneous}
+\end{eqnarray}
+
+Explain how Equation \ref{eqn:amdahl:homogeneous} follows the form of
+Equation \ref{eqn:amdahl:basic}.
+\begin{enumerate}
+\item
+What resources are used and what is the
+duration of $T_{\rm seq}$?
+
+\begin{answer}
+%% Write your answer to Problem 2A-1 here
+
+The one big processor with performance $perf(r)$ is used, and $T_{\rm seq}=\frac{1-f}{perf(r)}$
+
+\end{answer}
+\item
+ What resources are used and what is the
+duration of $T_{\rm par}$?
+
+\begin{answer}
+%% Write your answer to Problem 2A-2 here
+
+Those $\frac{n}{r}$ baseline processors with performance $perf(r)$ are used, 
+and $T_{\rm par}=\frac{f}{perf(r)\cdot\frac{n}{r}}$
+
+\end{answer}
+\end{enumerate}
+
+\newpage
+\subsection*{2B: Heterogeneous Model Speedup}
+Slide 8 gives the following equation for the speedup in the heterogenous model:
+\begin{eqnarray}
+S_{\rm he} & = & \frac{1}{\frac{1-f}{{\it perf}(r)} + 
+\frac{f}{{\it perf}(r) +  n -r}}  \label{eqn:amdahl:heterogeneous}
+\end{eqnarray}
+
+Explain how Equation \ref{eqn:amdahl:heterogeneous} follows the form
+of Equation
+\ref{eqn:amdahl:basic}.
+\begin{enumerate}
+\item
+What resources are used and what is the duration of $T_{\rm seq}$?
+
+\begin{answer}
+%% Write your answer to Problem 2B-1 here
+
+The one bit processor with performance $perf(r)$ is used, and $T_{\rm seq}=\frac{1-f}{perf(r)}$
+
+\end{answer}
+
+
+\item
+What resources are used and what is the duration of $T_{\rm par}$?
+
+\begin{answer}
+%% Write your answer to Problem 2B-2 here
+
+The one processor with performance $perf(r)$ and $n-r$ processors with performance $perf(1)$ is 
+used, and $T_{\rm par}=\frac{f}{perf(r)+n-r}$. 
+
+\end{answer}
+\end{enumerate}
+
+\newpage
+
+\subsection*{2C: Optimizing Parameter $r$ for the Homogeneous Model}
+
+For either of these models, we can find a value $r^{*}$ that achieves
+maximum speedup as a function of $f$, $n$, and $\alpha$.  Keeping $n$
+fixed at 256 but varying parameters $\alpha$ and $f$, fill in the
+table below giving the values of $r^{*}$ and $p = n/r^{*}$ for the
+homogeneous model, and the resulting speedups.
+
+{\bf Hint:} The number of processors $p = n/r$ must be an integer
+ranging from 1 to $n$.  You can
+simply compute
+\ref{eqn:amdahl:homogeneous} for all possible values and select the
+one with maximum speedup.
+
+You may find the following spreadsheet a useful starting point:
+\begin{center}
+\cref{\actualcoursehome/exercises/ex5-model.xlsx}{\visiblecoursehome/exercises/ex5-model.xlsx}
+\end{center}
+This spreadsheet generates the graphs shown on slide 9 for the case of
+$n=256$.  You can adapt this spreadsheet to determine the values of
+$r^{*}$.  (The spreadsheet only considers only cases where $p$ is a power of two.
+You must consider other integer values.)
+
+\begin{center}
+\renewcommand{\arraystretch}{2.0}
+\begin{tabular}{|cc|c|c|c|}
+\hline
+\makebox[0.5in]{$\alpha$} & 
+\makebox[0.5in]{$f$} & 
+\multicolumn{1}{|c}{\makebox[1.0in]{$r^{*}$}} & 
+\multicolumn{1}{c}{\makebox[1.0in]{$p = n/r^{*}$}} & 
+\multicolumn{1}{c|}{\makebox[1.0in]{$S_{\rm ho}$}} \\
+\hline
+0.5 & 0.700 & 
+%% Give the value of r* for alpha = 0.5, f = 0.700
+128.0
+&
+%% Give the value of p = n/r* for alpha = 0.5, f = 0.700
+2
+&
+%% Give the value of S_ho for alpha = 0.5, f = 0.700
+17.41
+\\
+\cline{3-5}
+0.5 & 0.970 & 
+%% Give the value of r* for alpha = 0.5, f = 0.970
+8.0
+&
+%% Give the value of p = n/r* for alpha = 0.5, f = 0.970
+32
+&
+%% Give the value of S_ho for alpha = 0.5, f = 0.970
+46.90
+ \\
+\cline{3-5}
+0.5 & 0.995 & 
+%% Give the value of r* for alpha = 0.5, f = 0.995
+1.29
+&
+%% Give the value of p = n/r* for alpha = 0.5, f = 0.995
+199
+
+&
+%% Give the value of S_ho for alpha = 0.5, f = 0.995
+113.42
+ \\
+\hline
+0.7 & 0.700 & 
+%% Give the value of r* for alpha = 0.7, f = 0.700
+256.0
+&
+%% Give the value of p = n/r* for alpha = 0.7, f = 0.700
+1
+&
+%% Give the value of S_ho for alpha = 0.7, f = 0.700
+48.50
+ \\
+\cline{3-5}
+0.7 & 0.970 & 
+%% Give the value of r* for alpha = 0.7, f = 0.970
+18.29
+&
+%% Give the value of p = n/r* for alpha = 0.7, f = 0.970
+14
+&
+%% Give the value of S_ho for alpha = 0.7, f = 0.970
+77.02
+ \\
+\cline{3-5}
+0.7 & 0.995 & 
+
+%% Give the value of r* for alpha = 0.7, f = 0.995
+3.01
+&
+%% Give the value of p = n/r* for alpha = 0.7, f = 0.995
+85
+&
+%% Give the value of S_ho for alpha = 0.7, f = 0.995
+129.51
+ \\
+\hline
+\end{tabular}
+\end{center}
+
+\newpage
+
+\subsection*{2D: Optimizing Parameter $r$ for the Heterogeneous Model}
+
+Fill in the table below giving the values of $r^{*}$ and $p =
+n-r^{*}+1$ for the Heterogeneous model, and the resulting speedups.
+
+\begin{center}
+\renewcommand{\arraystretch}{2.0}
+\begin{tabular}{|cc|c|c|c|}
+\hline
+\makebox[0.5in]{$\alpha$} & 
+\makebox[0.5in]{$f$} & 
+\multicolumn{1}{|c}{\makebox[1.0in]{$r^{*}$}} & 
+\multicolumn{1}{c}{\makebox[1.0in]{$p = n - r^{*} + 1$}} & 
+\multicolumn{1}{c|}{\makebox[1.0in]{$S_{\rm he}$}} \\
+\hline
+0.5 & 0.700 & 
+%% Give the value of r* for alpha = 0.5, f = 0.700
+170
+&
+%% Give the value of p = n - r* + 1 for alpha = 0.5, f = 0.700
+87
+&
+%% Give the value of S_ho for alpha = 0.5, f = 0.700
+33.25
+\\
+\cline{3-5}
+0.5 & 0.970 &
+%% Give the value of r* for alpha = 0.5, f = 0.970
+72
+&
+%% Give the value of p = n - r* + 1 for alpha = 0.5, f = 0.970
+185
+&
+%% Give the value of S_ho for alpha = 0.5, f = 0.970
+116.62
+ \\
+\cline{3-5}
+0.5 & 0.995 & 
+%% Give the value of r* for alpha = 0.5, f = 0.995
+28
+&
+%% Give the value of p = n - r* + 1 for alpha = 0.5, f = 0.995
+229
+&
+%% Give the value of S_ho for alpha = 0.5, f = 0.995
+191.94
+ \\
+\hline
+0.7 & 0.700 & 
+%% Give the value of r* for alpha = 0.7, f = 0.700
+163
+&
+%% Give the value of p = n - r* + 1 for alpha = 0.7, f = 0.700
+94
+&
+%% Give the value of S_ho for alpha = 0.7, f = 0.700
+71.75
+ \\
+\cline{3-5}
+0.7 & 0.970 & 
+%% Give the value of r* for alpha = 0.7, f = 0.970
+65
+&
+%% Give the value of p = n - r* + 1 for alpha = 0.7, f = 0.970
+192
+&
+%% Give the value of S_ho for alpha = 0.7, f = 0.970
+160.18
+ \\
+\cline{3-5}
+0.7 & 0.995 & 
+
+%% Give the value of r* for alpha = 0.7, f = 0.995
+27
+&
+%% Give the value of p = n - r* + 1 for alpha = 0.7, f = 0.995
+230
+&
+%% Give the value of S_ho for alpha = 0.7, f = 0.995
+214.59
+ \\
+\hline
+\end{tabular}
+\end{center}
+
+\newpage
+
+\section*{Problem 3: Cache Performance of Multi-Threaded Program (MODIFIED)}
+
+This problem relates to the image processing task described in Slides
+40--46 of Lecture 22:
+\begin{center}
+\cref{\actualcoursehome/lectures/22_dsl.pdf}{\visiblecoursehome/lectures/22\_dsl.pdf}.
+\end{center}
+
+You have been hired by a movie production company to write programs
+used for rendering images.  Each frame is $h \times w$ pixels, with a
+pixel represented with data type \texttt{float}.  Your first task is
+to write filtering programs that apply $k \times k$ filters to an
+image.  Code to do this is shown for on Slide 42 for the case of
+$k=3$.  The filters you must implement can be divided into two phases:
+one horizontal filtering stage and one vertical stage, as shown in
+Slide 43.
+
+Consider the code of Slide 43.  In this version, you
+allocate a temporary buffer large enough to hold all $w \times
+(h+k-1)$ pixels of the result generated by the first phase and used by
+the second.  The total work performed is proportional to $2k
+\cdot w \cdot h$.  We call this the {\em baseline} code.
+
+In the ideal case, the cache would be large enough to generate the
+temporary buffer and keep it resident in cache while it is being
+consumed in the second phase.
+Unfortunately, that is not feasible.  You have to work within the following constraints:
+\begin{itemize}
+\item The images are 4K $\times$ 4K, i.e., $w = h = 4096$.
+\item The machine has 16 cores sharing a single 2~MB ($2^{21}$-byte)
+cache.
+\end{itemize}
+
+You therefore consider the code of Slide 46, where you choose a {\em
+  chunk} size $c$, and size the temporary buffer to hold $c + k-1$
+rows.  The code then processes the image in multiple {\em passes}.
+Each pass has two phases, with the first filling the temporary buffer
+based on $c+k-1$ rows of the input, and the second generating $c$ rows
+of the output.  By selecting a small enough chunk size, the temporary
+buffer will be stored in the cache during phase 1 and remain in the
+cache as it is being used in phase 2.
+
+There are many images to process, and so you plan to use the multiple
+cores to run multiple threads, each operating on separate images.
+However, you want to select a chunk size $c$ such that all of the
+threads will keep their temporary buffers resident in cache.
+
+\newpage
+
+\begin{choice}
+\item
+Consider the single-threaded case.  Your colleague states that, as
+long as the chunk size is small enough that you can fit $c + k$
+rows in the cache, then you can keep the temporary buffer in the cache.  His reasoning is as follows:
+\begin{itemize}
+\item Phase 1: Only one row of the input is needed at a time, and the temporary buffer requires only $c+k-1$ rows.
+\item Phase 2: $k$ rows of the temporary buffer are needed at a time to build up the output buffer of $c$ rows.
+\end{itemize}
+Assuming the cache uses an LRU replacement policy, and ignoring 
+conflict misses, explain why this estimate may be too optimistic.
+
+\begin{answer}
+%% Write your answer to Problem 3A here
+
+
+
+\end{answer}
+
+\item
+What do you propose as a safe rule for the chunk size?  (Some advice:
+it's better to keep this simple and conservative.  If you have to run
+a cache simulator to answer this question, you're overdoing it.)
+
+\begin{answer}
+%% Write your answer to Problem 3B here
+
+\end{answer}
+
+\item
+How many rows can safely fit in the cache?  Remember that the
+input rows must be padded with an extra $k-1$ pixels, and you want
+to avoid false sharing.  Assume a cache block size of 64 bytes.  You can assume $k \leq 11$.
+
+\begin{answer}
+%% Write your answer to Problem 3C here
+
+\end{answer}
+
+\newpage
+
+\item
+When the caching works out, you find that the total amount of
+work is a good predictor of the program execution time.  Give a formula,
+in terms of $c$ and $k$, of how much work the chunked version must do,
+relative to the baseline version.
+
+\begin{answer}
+%% Write your answers to Problem 3D here
+\begin{description}
+\item[Baseline:] 
+
+\item[Chunked:]
+
+\item[Ratio:]
+
+\end{description} 
+\end{answer}
+
+\item
+Consider the single-threaded case, and consider $k \in \{3,5,7\}$.
+For each of these cases, what would be the maximum chunk size?
+Give an estimate of the execution time, relative to
+the baseline running on a machine with a very large
+cache.
+
+\begin{answer}
+%% Write your answers to Problem 3E here
+\begin{description}
+\item[$k=3$:]
+
+\item[$k=5$:]
+
+\item[$k=7$:]
+
+\end{description}
+\end{answer}
+
+\item
+For values of $k \in \{3,5,7\}$, determine the number of threads that
+would lead to optimum performance, considering that increasing the
+number of threads requires decreasing the chunk size.  What would be
+the chunk size?  Give an estimate of the execution time, relative to
+the baseline running on a single-threaded machine with a very large
+cache.
+
+\begin{answer}
+%% Write your answers to Problem 3F here
+\begin{description}
+\item[$k=3$:]
+
+\item[$k=5$:]
+
+\item[$k=7$:]
+
+\end{description}
+\end{answer}
+
+\end{choice}
+
+
+\end{document}
