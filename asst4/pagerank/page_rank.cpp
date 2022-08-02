@@ -24,10 +24,58 @@ void pageRank(Graph g, double* solution, double damping, double convergence)
   // precision scores are used to avoid underflow for large graphs
 
   int numNodes = num_nodes(g);
+  double rest = (1.0 - damping) / numNodes;
+
   double equal_prob = 1.0 / numNodes;
   for (int i = 0; i < numNodes; ++i) {
     solution[i] = equal_prob;
   }
+  double* score_new = new double[numNodes];
+  int* non_outgoing_nodes = new int[numNodes];
+  int non_outgoing_num = 0;
+  for (int i = 0; i < numNodes; i++)
+  {
+    if (outgoing_size(g, i) == 0)
+    {
+      non_outgoing_nodes[non_outgoing_num++] = i;
+    }
+  }
+
+  bool converged = false;
+  while (!converged)
+  {
+    double non_outgoing = 0.0;
+    #pragma omp parallel for reduction(+:non_outgoing) schedule(dynamic, 200)
+    for (int i = 0; i < non_outgoing_num; i++)
+    {
+      non_outgoing += solution[non_outgoing_nodes[i]];
+    }
+    non_outgoing = non_outgoing * damping / numNodes;
+
+    double global_diff = 0;
+    #pragma omp parallel for schedule(dynamic, 200)
+    for (int i = 0; i < numNodes; i++)
+    {
+      score_new[i] = 0;
+      const Vertex* start = incoming_begin(g,  i);
+      const Vertex* end = incoming_end(g, i);
+      for (const Vertex* v= start; v != end; v++)
+      {
+        score_new[i] += solution[*v] / outgoing_size(g, *v);
+      }
+      score_new[i] = (damping * score_new[i]) + rest + non_outgoing;
+    }
+
+    #pragma omp parallel for reduction(+:global_diff) schedule(dynamic, 200)
+    for (int i = 0; i < numNodes; i++)
+    {
+      global_diff += abs(solution[i] - score_new[i]);
+      solution[i] = score_new[i];
+    }
+    converged = global_diff < convergence;
+  }
+  delete score_new;
+  delete non_outgoing_nodes;
   
   
   /*
